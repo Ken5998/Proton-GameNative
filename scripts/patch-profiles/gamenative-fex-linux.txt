@@ -1,0 +1,15 @@
+android/patches/common/loader_preloader_c.patch
+android/patches/arm64ec/dlls_ntdll_unix_virtual_c.patch
+android/patches/arm64ec/dlls_ntdll_loader_c.patch
+android/patches/arm64ec/dlls_ntdll_unix_loader_c.patch
+android/patches/common/include_winternl_h.patch
+android/patches/common/include_wine_unixlib_h.patch
+android/patches/common/dlls_wow64_virtual_c.patch
+android/patches/common/dlls_ntdll_unix_unix_private_h.patch
+android/patches/test-bylaws/dlls_ntdll_unix_debug_c.patch
+android/patches/test-bylaws/dlls_ntdll_unix_signal_arm64_c.patch
+android/patches/test-bylaws/dlls_ntdll_unix_signal_arm_c.patch
+android/patches/test-bylaws/dlls_ntdll_unix_signal_i386_c.patch
+android/patches/test-bylaws/dlls_ntdll_ntdll_misc_h.patch
+android/patches/test-bylaws/dlls_wow64_syscall_c.patch
+android/patches/test-bylaws/dlls_ntdll_unix_process_c.patch

@@ -1,0 +1,253 @@
+name: Build Proton-GameNative ARM64
+run-name: ARM64 · ${{ inputs.gamenative_wine_tag }} · WRITECOPY ${{ inputs.enable_writcopy }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      proton_ref:
+        description: Valve Proton branch/tag/commit to use.
+        type: string
+        default: experimental_11.0
+        required: true
+      gamenative_wine_tag:
+        description: GameNative Wine source tag.
+        type: string
+        default: proton-11.0-2-20260928
+        required: true
+      package_version:
+        description: Package version, or auto to derive from the Wine tag.
+        type: string
+        default: auto
+        required: true
+      patch_profile:
+        description: Reviewed Linux/glibc patch profile.
+        type: choice
+        options: [gamenative-fex-linux]
+        default: gamenative-fex-linux
+      enable_writcopy:
+        description: Enable experimental PE header WRITECOPY.
+        type: boolean
+        default: false
+      publish_release:
+        description: Publish an unofficial experimental GitHub prerelease.
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: bash
+    env:
+      PROTON_REF: ${{ inputs.proton_ref }}
+      WINE_TAG: ${{ inputs.gamenative_wine_tag }}
+      PACKAGE_VERSION: ${{ inputs.package_version }}
+      PATCH_PROFILE: ${{ inputs.patch_profile }}
+      ENABLE_WRITCOPY: ${{ inputs.enable_writcopy }}
+      CCACHE_DIR: ${{ github.workspace }}/work/ccache
+      CCACHE_MAXSIZE: 2G
+      # A fail-fast floor, not an estimate or guarantee of sufficient capacity.
+      MIN_FREE_GIB: 12
+    outputs:
+      version: ${{ steps.inputs.outputs.version }}
+      artifact: ${{ steps.inputs.outputs.artifact }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Validate inputs and native ARM64 runner
+        id: inputs
+        run: |
+          set -euo pipefail
+          mkdir -p diagnostics work
+          exec > >(tee diagnostics/preflight.log) 2>&1
+          uname -a
+          uname -m
+          nproc
+          free -h
+          df -h | tee diagnostics/disk-space.log
+          case "$(uname -m)" in aarch64|arm64) ;; *) echo 'Native ARM64 runner required'; exit 1;; esac
+          test "$(uname -s)" = Linux
+          source scripts/common.sh
+          validate_ref "$PROTON_REF"
+          validate_ref "$WINE_TAG"
+          validate_bool "$ENABLE_WRITCOPY"
+          case "$PATCH_PROFILE" in gamenative-fex-linux) ;; *) die "Unsupported profile: $PATCH_PROFILE";; esac
+          version=$(bash scripts/detect-version.sh "$WINE_TAG" "$PACKAGE_VERSION")
+          ref_key=$(printf '%s' "$PROTON_REF" | sha256sum | cut -c1-16)
+          printf 'version=%s\nref_key=%s\n' "$version" "$ref_key" >> "$GITHUB_OUTPUT"
+          printf 'artifact=Proton-GameNative-%s-arm64-run-%s-writcopy-%s-attempt-%s\n' "$version" "$GITHUB_RUN_NUMBER" "$ENABLE_WRITCOPY" "$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+          printf 'VERSION=%s\n' "$version" >> "$GITHUB_ENV"
+          printf 'Proton ref: %s\nWine tag: %s\nVersion: %s\nProfile: %s\nWRITECOPY: %s\n' "$PROTON_REF" "$WINE_TAG" "$version" "$PATCH_PROFILE" "$ENABLE_WRITCOPY" > diagnostics/version.txt
+          for script in scripts/*.sh; do bash -n "$script"; done
+          if command -v shellcheck >/dev/null; then shellcheck -x scripts/*.sh; fi
+          python3 -m unittest discover -s tests -v
+          docker version
+
+      - name: Fetch exact upstream sources
+        run: |
+          set -euo pipefail
+          bash scripts/fetch-sources.sh work "$PROTON_REF" "$WINE_TAG" 2>&1 | tee diagnostics/checkout.log
+          df -h | tee -a diagnostics/disk-space.log
+
+      - name: Validate and apply reviewed patch profile
+        run: |
+          set -euo pipefail
+          bash scripts/apply-gamenative-fex-linux.sh work/Proton/wine diagnostics/patches 2>&1 | tee diagnostics/patch-check.log
+          if [[ "$ENABLE_WRITCOPY" == true ]]; then
+            bash scripts/apply-writcopy.sh work/Proton/wine 2>&1 | tee diagnostics/writcopy.log
+          fi
+          bash scripts/verify-markers.sh work/Proton/wine | tee diagnostics/source-markers.log
+          git -C work/Proton/wine diff --binary > diagnostics/wine-changes.patch
+          python3 scripts/write-build-info.py work/Proton diagnostics "$VERSION" "$PATCH_PROFILE" "$ENABLE_WRITCOPY"
+          cat diagnostics/build-info.txt
+
+      - name: Check disk before SDK preparation
+        run: |
+          set -euo pipefail
+          df -h | tee -a diagnostics/disk-space.log
+          free_kib=$(df -Pk "$GITHUB_WORKSPACE" | awk 'NR==2 {print $4}')
+          if (( free_kib < MIN_FREE_GIB * 1024 * 1024 )); then
+            echo "Insufficient free space: need at least ${MIN_FREE_GIB} GiB before SDK preparation."
+            du -h -d 2 work | sort -h | tail -40
+            exit 1
+          fi
+
+      - name: Restore ccache
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ runner.arch }}-${{ steps.inputs.outputs.ref_key }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ccache-${{ runner.arch }}-${{ steps.inputs.outputs.ref_key }}-
+
+      - name: Inspect configure help and prepare native SDK
+        run: |
+          set -euo pipefail
+          mkdir -p "$CCACHE_DIR"
+          printf 'max_size = 2G\n' > "$CCACHE_DIR/ccache.conf"
+          bash scripts/configure-build.sh work/Proton work/build "$VERSION" diagnostics
+          df -h | tee -a diagnostics/disk-space.log
+          {
+            printf '\nProton SDK image: '
+            cat diagnostics/sdk-image.txt
+            printf 'Proton SDK architecture and digest: '
+            cat diagnostics/sdk-digest.txt
+          } >> diagnostics/build-info.txt
+
+      - name: Snapshot corresponding patched Wine source
+        run: |
+          set -euo pipefail
+          bash scripts/package-build.sh source --version "$VERSION" --tree work/Proton/wine --metadata diagnostics --output work/source-assets
+
+      - name: Check disk before compilation
+        run: |
+          set -euo pipefail
+          df -h | tee -a diagnostics/disk-space.log
+          free_kib=$(df -Pk "$GITHUB_WORKSPACE" | awk 'NR==2 {print $4}')
+          if (( free_kib < MIN_FREE_GIB * 1024 * 1024 )); then
+            echo "Insufficient free space: need at least ${MIN_FREE_GIB} GiB before compilation."
+            du -h -d 2 work | sort -h | tail -40
+            docker system df
+            exit 1
+          fi
+
+      - name: Build standard Proton redist
+        id: compile
+        run: |
+          set -euo pipefail
+          log="$GITHUB_WORKSPACE/diagnostics/build.log"
+          export SOURCE_DATE_EPOCH
+          SOURCE_DATE_EPOCH=$(git -C work/Proton/wine show -s --format=%ct HEAD)
+          cd work/build
+          set +e
+          make redist 2>&1 | tee "$log"
+          pipeline_status=("${PIPESTATUS[@]}")
+          set -e
+          if (( pipeline_status[0] != 0 || pipeline_status[1] != 0 )); then
+            tail -200 "$log"
+            echo 'Last matching errors (newest first):'
+            grep -nE 'Error|error:|FAILED|make(\[[0-9]+\])?: \*\*\*' "$log" | tail -100 | tac || true
+            if (( pipeline_status[0] != 0 )); then exit "${pipeline_status[0]}"; fi
+            exit "${pipeline_status[1]}"
+          fi
+
+      - name: Check disk after compilation
+        if: ${{ always() && steps.compile.outcome != 'skipped' }}
+        run: df -h | tee -a diagnostics/disk-space.log
+
+      - name: Verify compiled source copy and package complete redist
+        run: |
+          set -euo pipefail
+          # Proton builds an rsynced source copy; inspect that too.
+          bash scripts/verify-markers.sh work/build/src-wine | tee diagnostics/compiled-source-markers.log
+          bash scripts/package-build.sh binary --version "$VERSION" --tree work/build/redist --metadata diagnostics --sources work/source-assets --output out
+          cp diagnostics/build.log out/build.log
+          df -h | tee -a diagnostics/disk-space.log
+
+      - name: Upload distributables and build log
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.inputs.outputs.artifact }}
+          path: out/*
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Final disk diagnostics
+        if: always()
+        run: |
+          mkdir -p diagnostics
+          df -h | tee -a diagnostics/disk-space.log
+          du -h -d 2 work 2>/dev/null | sort -h | tail -50 >> diagnostics/disk-space.log || true
+          docker system df >> diagnostics/disk-space.log 2>&1 || true
+
+      - name: Upload diagnostics even on failure
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: diagnostics-${{ steps.inputs.outputs.version || 'unresolved' }}-run-${{ github.run_number }}-writcopy-${{ inputs.enable_writcopy }}-attempt-${{ github.run_attempt }}
+          path: diagnostics/
+          if-no-files-found: warn
+
+  release:
+    if: ${{ inputs.publish_release }}
+    needs: build
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.build.outputs.artifact }}
+          path: assets
+      - name: Publish a unique experimental release with corresponding source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          tag="${VERSION}-arm64-r${GITHUB_RUN_NUMBER}-a${GITHUB_RUN_ATTEMPT}"
+          name="Proton-GameNative-${VERSION}-arm64"
+          # A failed API request is fatal, never mistaken for an absent tag.
+          matches=$(gh api "repos/$GH_REPO/git/matching-refs/tags/$tag" --jq length)
+          if [[ "$matches" != 0 ]]; then echo 'Release tag already exists; refusing to overwrite'; exit 1; fi
+          cd assets
+          sha256sum -c "$name.tar.gz.sha256" "$name-source.tar.gz.sha256"
+          {
+            printf '%s\n\n' 'Experimental, unofficial community build. Not affiliated with or endorsed by Valve, WineHQ or GameNative. Runtime compatibility is not established by build success.'
+            printf '%s\n\n' 'Includes the corresponding patched Wine source. All third-party components retain their own licenses.'
+            printf '```text\n'
+            cat build-info.txt
+            printf '```\n'
+          } > release-notes.md
+          # Keep the release private as a draft until all five assets are uploaded.
+          gh release create "$tag" --draft --prerelease --target "$GITHUB_SHA" --title "Proton-GameNative $VERSION ARM64" --notes-file release-notes.md "$name.tar.gz" "$name.tar.gz.sha256" "$name-source.tar.gz" "$name-source.tar.gz.sha256" build-info.txt
+          gh release edit "$tag" --draft=false
