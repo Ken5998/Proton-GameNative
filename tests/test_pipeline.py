@@ -149,7 +149,7 @@ class PackagingTests(unittest.TestCase):
             for d in (wine, meta, redist):
                 d.mkdir()
             (wine / 'COPYING.LIB').write_text('Original Wine license\n')
-            (wine / 'configure').write_text('configure\n')
+            (wine / 'configure.ac').write_text('AC_INIT\n')
             (wine / 'patched.c').write_text('actual patched input\n')
             (wine / '.git').mkdir()
             (wine / '.git/secret').write_text('excluded')

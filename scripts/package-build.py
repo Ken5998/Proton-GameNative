@@ -66,7 +66,7 @@ def archive(path, entries):
 
 
 if a.mode == 'source':
-    if not (a.tree / 'COPYING.LIB').is_file() or not (a.tree / 'configure').is_file():
+    if not (a.tree / 'COPYING.LIB').is_file() or not (a.tree / 'configure.ac').is_file():
         p.error('Not a Wine source tree with its license')
     root = Path(__file__).resolve().parent.parent
     top = name + '-source'
