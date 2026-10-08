@@ -180,6 +180,16 @@ class PackagingTests(unittest.TestCase):
                 d = redist / 'files/lib/wine' / arch
                 d.mkdir(parents=True)
                 (d / 'payload').write_text('payload')
+            # A minimal ARM64 PE header lets packaging verify the actual Mono architecture.
+            pe = bytearray(512)
+            pe[:2] = b'MZ'
+            struct.pack_into('<I', pe, 0x3c, 0x80)
+            pe[0x80:0x84] = b'PE\0\0'
+            struct.pack_into('<HHIIIHH', pe, 0x84, 0xaa64, 0, 0, 0, 0, 0xf0, 0x2002)
+            struct.pack_into('<H', pe, 0x98, 0x20b)
+            mono = redist / 'files/share/wine/mono/wine-mono/bin/libmono-2.0-arm64.dll'
+            mono.parent.mkdir(parents=True)
+            mono.write_bytes(pe)
             (redist / 'license-link').symlink_to('LICENSE')
             args = ['bash', SCRIPTS / 'package-build.sh', 'binary', *common, '--tree', redist, '--sources', sources, '--output', output]
             run(*args)
@@ -189,6 +199,7 @@ class PackagingTests(unittest.TestCase):
                     self.assertEqual(tar.extractfile(name + '/' + item).read(), b'Keep upstream content\n')
                 self.assertTrue(tar.getmember(name + '/license-link').issym())
                 self.assertEqual(tar.getmember(name + '/files/bin-arm64/wine').mode & 0o777, 0o755)
+                self.assertEqual(tar.extractfile(name + '/files/share/wine/mono/wine-mono/bin/libmono-2.0-arm64.dll').read(), pe)
             for archive in output.glob('*.tar.gz'):
                 self.assertEqual(Path(str(archive) + '.sha256').read_text(), f'{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}\n')
             self.assertNotEqual(run(*args, ok=False).returncode, 0)  # No overwrites.
@@ -196,6 +207,10 @@ class PackagingTests(unittest.TestCase):
             bad = base / 'bad'
             self.assertNotEqual(run(*args[:-1], bad, ok=False).returncode, 0)
             self.assertFalse(list(bad.glob('*.tar.gz')))
+            (redist / 'files/bin-arm64/wine').write_bytes(elf)
+            mono.write_bytes(pe[:0x84] + struct.pack('<H', 0x8664) + pe[0x86:])
+            bad_mono = base / 'bad-mono'
+            self.assertNotEqual(run(*args[:-1], bad_mono, ok=False).returncode, 0)
 
 
 if __name__ == '__main__':

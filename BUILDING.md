@@ -76,6 +76,16 @@ sysvshm, ntsync-android backend, locale, or shell-path patch is selected. The
 guarded `ntsync_userspace` declaration in a selected header does not import that
 backend. Do not run GameNative's complete Android build script in this pipeline.
 
+The local [Wine Mono ARM64 patch](patches/wine-mono-aarch64.patch) fixes an
+architecture selection error in this Wine tag: `mscoree` selects the x86_64 Mono
+DLL when compiled for AArch64. A Retroid Pocket 6 log showed the resulting
+`c000007b` while launching a .NET executable. The patch makes AArch64 select
+`libmono-2.0-arm64.dll`, which Valve's ARM64 redist already includes. It is
+applied after the GameNative profile, checked against the exact source, included
+in the source archive, and its SHA256 is recorded in build metadata. Packaging
+also rejects a missing or non-ARM64 Mono DLL. A future Wine tag that changes
+these lines requires a review rather than a silent patch skip.
+
 Marker checks read explicit real `.c`/`.h` build inputs, excluding `.git` and
 `android/patches`: `WINEVMEMMAXSIZE`, `MemoryWineLoadUnixLibByName`,
 `MemoryWineLoadUnixLibByNameWow64`, `Wow64SuspendLocalThread`, and

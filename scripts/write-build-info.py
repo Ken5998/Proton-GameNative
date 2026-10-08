@@ -48,6 +48,7 @@ info = {
     'Source date epoch': git(a.proton / 'wine', 'show', '-s', '--format=%ct', 'HEAD'),
     'Full ordered patch list': patches,
     'Patch SHA256': {v: hashlib.sha256((a.proton / 'wine' / v).read_bytes()).hexdigest() for v in patches},
+    'Local ARM64 Mono patch SHA256': hashlib.sha256((root / 'patches/wine-mono-aarch64.patch').read_bytes()).hexdigest(),
     'Proton submodule commits': git(a.proton, 'submodule', 'status', '--recursive').splitlines(),
 }
 a.output.mkdir(parents=True, exist_ok=True)

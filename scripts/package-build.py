@@ -73,7 +73,7 @@ if a.mode == 'source':
     entries = [(a.tree, top + '/wine'), (a.metadata / 'build-info.txt', top + '/build-info.txt')]
     # Include the build recipe as well as the exact patched source inputs.
     entries += [(root / item, top + '/build-system/' + item) for item in
-                ['scripts', 'tests', '.github/workflows/build-arm64.yml', 'README.md', 'BUILDING.md', 'THIRD_PARTY_NOTICES.md', 'LICENSE']]
+                ['scripts', 'patches', 'tests', '.github/workflows/build-arm64.yml', 'README.md', 'BUILDING.md', 'THIRD_PARTY_NOTICES.md', 'LICENSE']]
     archive(a.output / (top + '.tar.gz'), entries)
 else:
     required = ['proton', 'compatibilitytool.vdf', 'toolmanifest.vdf', 'version', 'LICENSE',
@@ -84,6 +84,12 @@ else:
     for item in ['files/lib/wine/aarch64-unix', 'files/lib/wine/aarch64-windows']:
         if not (a.tree / item).is_dir() or not any((a.tree / item).iterdir()):
             p.error(f'Missing or empty ARM64 payload: {item}')
+    mono = a.tree / 'files/share/wine/mono/wine-mono/bin/libmono-2.0-arm64.dll'
+    if not mono.is_file():
+        p.error('ARM64 Wine Mono DLL missing from redist')
+    mono_description = subprocess.check_output(['file', '-L', str(mono)], text=True).strip()
+    if 'Aarch64' not in mono_description and 'ARM64' not in mono_description:
+        p.error(f'Wine Mono DLL is not ARM64: {mono_description}')
     manifest = (a.tree / 'compatibilitytool.vdf').read_text()
     if not re.search(r'"display_name"\s+"' + re.escape(f'Proton-GameNative {a.version} ARM64') + '"', manifest):
         p.error('Unexpected Steam display name; check supported --build-name configuration')

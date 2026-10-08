@@ -103,6 +103,7 @@ jobs:
           if [[ "$ENABLE_WRITCOPY" == true ]]; then
             bash scripts/apply-writcopy.sh work/Proton/wine 2>&1 | tee diagnostics/writcopy.log
           fi
+          bash scripts/apply-mono-arm64.sh work/Proton/wine 2>&1 | tee diagnostics/mono-arm64.log
           bash scripts/verify-markers.sh work/Proton/wine | tee diagnostics/source-markers.log
           git -C work/Proton/wine diff --binary > diagnostics/wine-changes.patch
           python3 scripts/write-build-info.py work/Proton diagnostics "$VERSION" "$PATCH_PROFILE" "$ENABLE_WRITCOPY"
@@ -187,6 +188,7 @@ jobs:
           set -euo pipefail
           # Proton builds an rsynced source copy; inspect that too.
           bash scripts/verify-markers.sh work/build/src-wine | tee diagnostics/compiled-source-markers.log
+          grep -Fq "'a','r','m','6','4'" work/build/src-wine/dlls/mscoree/metahost.c
           bash scripts/package-build.sh binary --version "$VERSION" --tree work/build/redist --metadata diagnostics --sources work/source-assets --output out
           cp diagnostics/build.log out/build.log
           df -h | tee -a diagnostics/disk-space.log
