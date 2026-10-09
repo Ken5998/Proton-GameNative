@@ -1,0 +1,59 @@
+name: Box64 route bundle
+run-name: Box64 bundle · ${{ inputs.box64_ref || 'v0.4.3-3' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      box64_ref:
+        description: Upstream Box64 tag to build (default is the version tested on ArmadaOS).
+        type: string
+        default: v0.4.3-3
+        required: true
+  pull_request:
+    paths:
+      - box64/**
+      - tests/test_box64.py
+      - .github/workflows/box64-bundle.yml
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      BOX64_REF: ${{ inputs.box64_ref || 'v0.4.3-3' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Check scripts and run installer tests
+        run: |
+          set -euo pipefail
+          source scripts/common.sh
+          validate_ref "$BOX64_REF"
+          for script in box64/*.sh; do bash -n "$script"; done
+          if command -v shellcheck >/dev/null; then shellcheck box64/*.sh; fi
+          python3 -m unittest tests.test_box64 -v
+
+      - name: Build Box64 and the runtime bundle
+        run: bash box64/build-bundle.sh out
+
+      - name: Smoke-test the built Box64
+        run: |
+          set -euo pipefail
+          tar -xzf out/box64-armada.tar.gz -C "$RUNNER_TEMP"
+          "$RUNNER_TEMP/box64-armada/box64" --version
+          cp box64/armada-box64.sh box64/armada_box64.py box64/README.md out/
+
+      - name: Upload bundle and installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: box64-armada-${{ env.BOX64_REF }}-run-${{ github.run_number }}
+          path: out/*
+          if-no-files-found: error
