@@ -16,6 +16,11 @@ Generated builds include, but are not limited to:
 | FEX-related components | FEX and its dependencies have their own upstream licenses; Wine-side FEX patches retain their source licensing |
 | Other Proton submodules and bundled dependencies | Their own LICENSE, COPYING, NOTICE, patent, font, and source-file notices |
 
+The optional Box64 route bundle (`box64-armada.tar.gz`, built by
+`box64/build-bundle.sh`) contains [Box64](https://github.com/ptitSeb/box64) under
+the MIT license and the x86_64/i386 GCC runtime libraries from Box64's source tree
+(GPL with the GCC Runtime Library Exception). It contains no Proton or Wine files.
+
 This list is descriptive, not an exhaustive license inventory. The selected
 Proton commit determines component versions and may change what is included.
 Inspect its submodules, [distribution license](https://github.com/ValveSoftware/Proton/blob/experimental_11.0/dist.LICENSE),

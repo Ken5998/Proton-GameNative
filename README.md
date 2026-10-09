@@ -43,6 +43,13 @@ compatibility settings. Use the version shown in your downloaded filenames.
 The archive contains exactly one compatibility-tool directory and includes
 `build-info.txt` with source provenance and the ordered patch list.
 
+## Alternative: x86_64 Proton under Box64
+
+[box64/](box64/README.md) holds a separate route that runs an unmodified x86_64
+Proton (for example GE-Proton10-34) with Box64 instead of FEX, similar to how
+GameNative runs x86_64 Proton on Android. It builds nothing from Proton or Wine:
+an installer creates a Box64-wrapped compatibility tool next to an existing Proton.
+
 ## Build manually with GitHub Actions
 
 Open **Actions → Build Proton-GameNative ARM64 → Run workflow**. Builds run on
